@@ -1,8 +1,19 @@
-#version 330 core
+#version 430 core
+layout (std430, binding = 0) buffer Board {
+    float board[];
+};
+
+layout (std430, binding = 1) buffer Params {
+    int width;
+    int height;
+    int boardWidth;
+    int boardHeight;
+};
+
 out vec3 color;
 
 void main(){
-    float x = gl_FragCoord.x / 640.0;
-    float y = gl_FragCoord.y / 480.0;
-    color = vec3(x, x * y, y);
+    int x = int(gl_FragCoord.x * boardWidth / width);
+    int y = int(gl_FragCoord.y * boardHeight / width);
+    color = vec3(board[x + 1 + (y + 1) * (boardWidth + 2)]) * 0.5 + 0.25;
 }

@@ -1,10 +1,27 @@
 #define GLFW_INCLUDE_NONE
+
 #include <glad/glad.h>
 #include <GLFW/glfw3.h>
 
 #include <iostream>
 #include <fstream>
 #include <streambuf>
+#include <random>
+
+const int WIDTH = 800;
+const int HEIGHT = 800;
+const int BOARD_CELL_SIZE = 10;
+const int BOARD_WIDTH = WIDTH / BOARD_CELL_SIZE;
+const int BOARD_HEIGHT = HEIGHT / BOARD_CELL_SIZE;
+
+const float PERIOD = .1f;
+
+float getRandom() {
+    static std::random_device rd;
+    static std::default_random_engine e(rd());
+    static std::uniform_int_distribution<> d(0, 1);
+    return (float) d(e);
+}
 
 int compileShader(const unsigned int shader, const char *file) {
     std::ifstream t(file);
@@ -45,11 +62,12 @@ int main() {
         return -1;
     }
 
-    glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+    glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
 
-    GLFWwindow *window = glfwCreateWindow(640, 480, "conway_life", nullptr, nullptr);
+    GLFWwindow *window = glfwCreateWindow(800, 800, "conway_life", nullptr, nullptr);
     if (!window) {
         std::cout << "GLFW window creation failed" << std::endl;
         glfwTerminate();
@@ -103,31 +121,97 @@ int main() {
     glDeleteShader(fragmentShader);
 
     float vertices[] = {
+            -1.f, 1.f,
+            -1.f, -1.f,
+            1.f, 1.f,
+            1.f, 1.f,
             -1.f, -1.f,
             1.f, -1.f,
-            .0f, 1.f,
     };
 
-    unsigned int vao, vbo;
+    unsigned int vao, vbo, ssbo, params_ssbo;
     glGenVertexArrays(1, &vao);
     glGenBuffers(1, &vbo);
+    glGenBuffers(1, &ssbo);
+    glGenBuffers(1, &params_ssbo);
 
     glBindVertexArray(vao);
+
     glBindBuffer(GL_ARRAY_BUFFER, vbo);
     glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
-
-    glEnableVertexAttribArray(0);  // vertex location value
+    glEnableVertexAttribArray(0);
     glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(float), (void *) 0);
 
+    float board1[(BOARD_WIDTH + 2) * (BOARD_HEIGHT + 2)];
+    float board2[(BOARD_WIDTH + 2) * (BOARD_HEIGHT + 2)];
+    float *board = board1;
+
+    const int neighborIndices[] = {
+            -(BOARD_WIDTH + 2) - 1,  // BOTTOM LEFT
+            -(BOARD_WIDTH + 2),  // BOTTOM
+            -(BOARD_WIDTH + 2) + 1,  // BOTTOM RIGHT
+            -1,  // LEFT
+            // SKIP CENTER
+            +1,  // RIGHT
+            +(BOARD_WIDTH + 2) - 1,  // UPPER LEFT
+            +(BOARD_WIDTH + 2),  // UP
+            +(BOARD_WIDTH + 2) + 1  // UPPER RIGHT
+    };
+
+    for (int i = 0; i < BOARD_WIDTH; ++i) {
+        for (int j = 0; j < BOARD_HEIGHT; ++j) {
+            board[i + 1 + (j + 1) * (BOARD_WIDTH + 2)] = getRandom();
+        }
+    }
+
+    const int params[] = {WIDTH, HEIGHT, BOARD_WIDTH, BOARD_HEIGHT};
+
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, params_ssbo);
+    glBufferData(GL_SHADER_STORAGE_BUFFER, 4 * sizeof(int), params, GL_DYNAMIC_COPY);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, params_ssbo);
+
+    double referenceTime = glfwGetTime();
     while (!glfwWindowShouldClose(window)) {
         processInput(window);
+
+        if (glfwGetTime() - referenceTime > PERIOD) {
+            referenceTime += PERIOD;
+            float *old = board;
+            board = board == board1 ? board2 : board1;
+            for (int i = 0; i < BOARD_WIDTH; ++i) {
+                for (int j = 0; j < BOARD_HEIGHT; ++j) {
+                    int index = i + 1 + (j + 1) * (BOARD_WIDTH + 2);
+                    float sum = .0f;
+                    for (int neighborIndex : neighborIndices) {
+                        sum += old[index + neighborIndex];
+                    }
+                    if (old[index] > .5f) {
+                        if (sum < 2.f || sum >= 4.f) {
+                            board[index] = .0f;
+                        } else {
+                            board[index] = 1.f;
+                        }
+                    } else {
+                        if (sum >= 3.f && sum < 4.f) {
+                            board[index] = 1.f;
+                        } else {
+                            board[index] = .0f;
+                        }
+                    }
+                }
+            }
+        }
 
         glClear(GL_COLOR_BUFFER_BIT);
 
         glUseProgram(shaderProgram);
-        glBindBuffer(GL_ARRAY_BUFFER, vbo);
+        glBindVertexArray(vao);
 
-        glDrawArrays(GL_TRIANGLES, 0, 3);
+        glBindBuffer(GL_SHADER_STORAGE_BUFFER, ssbo);
+        glBufferData(GL_SHADER_STORAGE_BUFFER, sizeof(board1), board, GL_DYNAMIC_COPY);
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, ssbo);
+
+        glDrawArrays(GL_TRIANGLES, 0, 6);
 
         glfwSwapBuffers(window);
         glfwPollEvents();
