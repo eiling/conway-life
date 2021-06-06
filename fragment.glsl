@@ -14,6 +14,6 @@ out vec3 color;
 
 void main(){
     int x = int(gl_FragCoord.x * boardWidth / width);
-    int y = int(gl_FragCoord.y * boardHeight / width);
-    color = vec3(board[x + 1 + (y + 1) * (boardWidth + 2)]) * 0.5 + 0.25;
+    int y = int(gl_FragCoord.y * boardHeight / height);
+    color = vec3(board[x + 1 + (y + 1) * (boardWidth + 2)]) * 0.7 + 0.1;
 }
