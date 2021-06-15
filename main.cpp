@@ -10,11 +10,11 @@
 
 const int WIDTH = 800;
 const int HEIGHT = 800;
-const int BOARD_CELL_SIZE = 10;
+const int BOARD_CELL_SIZE = 2;
 const int BOARD_WIDTH = WIDTH / BOARD_CELL_SIZE;
 const int BOARD_HEIGHT = HEIGHT / BOARD_CELL_SIZE;
 
-const float PERIOD = .1f;
+const float PERIOD = .005f;
 
 float getRandom() {
     static std::random_device rd;
@@ -129,6 +129,15 @@ int main() {
             1.f, -1.f,
     };
 
+    float steps[] = {
+            20.f,
+            1.f,
+            20.f,
+            20.f,
+            1.f,
+            1.f,
+    };
+
     unsigned int vao, vbo, ssbo, params_ssbo;
     glGenVertexArrays(1, &vao);
     glGenBuffers(1, &vbo);
@@ -138,9 +147,12 @@ int main() {
     glBindVertexArray(vao);
 
     glBindBuffer(GL_ARRAY_BUFFER, vbo);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(vertices) + sizeof(steps), vertices, GL_STATIC_DRAW);
+    glBufferSubData(GL_ARRAY_BUFFER, sizeof(vertices), sizeof(steps), steps);
     glEnableVertexAttribArray(0);
     glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(float), (void *) 0);
+    glEnableVertexAttribArray(1);
+    glVertexAttribPointer(1, 1, GL_FLOAT, GL_FALSE, sizeof(float), (void *) sizeof(vertices));
 
     float board1[(BOARD_WIDTH + 2) * (BOARD_HEIGHT + 2)];
     float board2[(BOARD_WIDTH + 2) * (BOARD_HEIGHT + 2)];
@@ -170,12 +182,14 @@ int main() {
     glBufferData(GL_SHADER_STORAGE_BUFFER, 4 * sizeof(int), params, GL_DYNAMIC_COPY);
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, params_ssbo);
 
+    int gen = 0;
     double referenceTime = glfwGetTime();
     while (!glfwWindowShouldClose(window)) {
         processInput(window);
 
         if (glfwGetTime() - referenceTime > PERIOD) {
             referenceTime += PERIOD;
+            std::cout << "Generation: " << ++gen << std::endl;
             float *old = board;
             board = board == board1 ? board2 : board1;
             for (int i = 0; i < BOARD_WIDTH; ++i) {
