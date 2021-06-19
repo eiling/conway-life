@@ -12,11 +12,23 @@
 const int WIDTH = 800;
 const int HEIGHT = 800;
 
+const int BOARD_HEIGHT = 40;
+const int BOARD_WIDTH = BOARD_HEIGHT * 5;
+
 const int STEPS = 60;
 const float RADIUS = .6f;
 const float THICKNESS = .8f;
 
 const float PI = 3.1415;
+
+const float PERIOD = 1.f / 30.f;
+
+float getRandom() {
+    static std::random_device rd;
+    static std::default_random_engine e(rd());
+    static std::uniform_int_distribution<> d(0, 1);
+    return (float) d(e);
+}
 
 int compileShader(const unsigned int shader, const char *file) {
     std::ifstream t(file);
@@ -188,9 +200,11 @@ int main() {
         vertices[6 * 5 * i + 5 * 5 + 4] = v0;
     }
 
-    unsigned int vao, vbo;
+    unsigned int vao, vbo, ssbo, params_ssbo;
     glGenVertexArrays(1, &vao);
     glGenBuffers(1, &vbo);
+    glGenBuffers(1, &ssbo);
+    glGenBuffers(1, &params_ssbo);
 
     glBindVertexArray(vao);
 
@@ -201,39 +215,92 @@ int main() {
     glEnableVertexAttribArray(1);
     glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (void *) (3 * sizeof(float)));
 
+    float board1[(BOARD_WIDTH + 2) * (BOARD_HEIGHT + 2)];
+    float board2[(BOARD_WIDTH + 2) * (BOARD_HEIGHT + 2)];
+    float *board = board1;
+
+    const int neighborIndices[] = {
+            -(BOARD_WIDTH + 2) - 1,  // BOTTOM LEFT
+            -(BOARD_WIDTH + 2),  // BOTTOM
+            -(BOARD_WIDTH + 2) + 1,  // BOTTOM RIGHT
+            -1,  // LEFT
+            // SKIP CENTER
+            +1,  // RIGHT
+            +(BOARD_WIDTH + 2) - 1,  // UPPER LEFT
+            +(BOARD_WIDTH + 2),  // UP
+            +(BOARD_WIDTH + 2) + 1  // UPPER RIGHT
+    };
+
+    for (int i = 0; i < BOARD_WIDTH; ++i) {
+        for (int j = 0; j < BOARD_HEIGHT; ++j) {
+            board[i + 1 + (j + 1) * (BOARD_WIDTH + 2)] = getRandom();
+        }
+    }
+
+    const int params[] = {BOARD_WIDTH, BOARD_HEIGHT};
+
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, params_ssbo);
+    glBufferData(GL_SHADER_STORAGE_BUFFER, sizeof(params), params, GL_DYNAMIC_COPY);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, params_ssbo);
+
     float rotx = .0f;
-    float roty = .0f;
+    float roty = PI / 2.f;
     float rotz = .0f;
 
     // double lastx, lasty;
 
-    double last = glfwGetTime();
+    int gen = 0;
+    double referenceTime = glfwGetTime();
     while (!glfwWindowShouldClose(window)) {
         processInput(window);
-        // glfwGetCursorPos(window, &lastx, &lasty);
-
-        // int mouseState = glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT);
-        // if (mouseState == GLFW_PRESS) {
-        //     double x, y, dx, dy;
-        //     glfwGetCursorPos(window, &x, &y);
-        //     dx = (x - lastx) / WIDTH;
-        //     dy = (y - lasty) / HEIGHT;
-        //     rotx += (float) (20.0 * dy);
-        //     roty -= (float) (20.0 * dx);
-        // }
 
         double now = glfwGetTime();
-        while (now > last) {
+        while (now - referenceTime > PERIOD) {
+            referenceTime += PERIOD;
+            std::cout << "Generation: " << ++gen << std::endl;
+
+            float *old = board;
+            board = board == board1 ? board2 : board1;
+            for (int i = 0; i < BOARD_HEIGHT; ++i) {
+                old[(i + 1) * (BOARD_WIDTH + 2)] = old[BOARD_WIDTH + (BOARD_HEIGHT - i) * (BOARD_WIDTH + 2)];
+                old[BOARD_WIDTH + 1 + (i + 1) * (BOARD_WIDTH + 2)] = old[1 + (BOARD_HEIGHT - i) * (BOARD_WIDTH + 2)];
+            }
+            for (int i = 0; i < BOARD_WIDTH; ++i) {
+                for (int j = 0; j < BOARD_HEIGHT; ++j) {
+                    int index = i + 1 + (j + 1) * (BOARD_WIDTH + 2);
+                    float sum = .0f;
+                    for (int neighborIndex : neighborIndices) {
+                        sum += old[index + neighborIndex];
+                    }
+                    if (old[index] > .5f) {
+                        if (sum < 2.f || sum >= 4.f) {
+                            board[index] = .0f;
+                        } else {
+                            board[index] = 1.f;
+                        }
+                    } else {
+                        if (sum >= 3.f && sum < 4.f) {
+                            board[index] = 1.f;
+                        } else {
+                            board[index] = .0f;
+                        }
+                    }
+                }
+            }
+
             // rotx += PI / 180.f;
-            roty += PI / 180.f;
+            roty += PI / 360.f;
             // rotz += PI / 270.f;
-            last += 1.0 / 60.0;
         }
 
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
         glUseProgram(shaderProgram);
         glBindVertexArray(vao);
+
+        glBindBuffer(GL_SHADER_STORAGE_BUFFER, ssbo);
+        glBufferData(GL_SHADER_STORAGE_BUFFER, sizeof(board1), board, GL_DYNAMIC_COPY);
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, ssbo);
 
         glUniform3f(2, rotx, roty, rotz);
 
