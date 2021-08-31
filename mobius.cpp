@@ -12,16 +12,17 @@
 const int WIDTH = 800;
 const int HEIGHT = 800;
 
-const int BOARD_HEIGHT = 40;
+const int BOARD_HEIGHT = 25;
 const int BOARD_WIDTH = BOARD_HEIGHT * 5;
 
-const int STEPS = 60;
+const int STEPS = 300;
 const float RADIUS = .6f;
 const float THICKNESS = .8f;
 
-const float PI = 3.1415;
+const float PI = 3.1415f;
 
 const float PERIOD = 1.f / 30.f;
+// const float PERIOD = .1f;
 
 float getRandom() {
     static std::random_device rd;
@@ -106,6 +107,14 @@ int main() {
         return -1;
     }
 
+    // unsigned int computeShader;
+    // computeShader = glCreateShader(GL_COMPUTE_SHADER);
+    // if (!compileShader(computeShader, "mobiusCompute.glsl")) {
+    //     std::cout << "ERROR::SHADER::COMPUTE::COMPILATION_FAILED" << std::endl;
+    //     printErrorInfo(computeShader);
+    //     return -1;
+    // }
+
     unsigned int shaderProgram;
     shaderProgram = glCreateProgram();
     glAttachShader(shaderProgram, vertexShader);
@@ -127,7 +136,7 @@ int main() {
     glDeleteShader(vertexShader);
     glDeleteShader(fragmentShader);
 
-    glClearColor(.0f, .1f, .0f, .0f);
+    glClearColor(.0f, .0f, .0f, .0f);
 
     glEnable(GL_DEPTH_TEST);
     glDepthFunc(GL_LESS);
@@ -268,21 +277,23 @@ int main() {
             for (int i = 0; i < BOARD_WIDTH; ++i) {
                 for (int j = 0; j < BOARD_HEIGHT; ++j) {
                     int index = i + 1 + (j + 1) * (BOARD_WIDTH + 2);
-                    float sum = .0f;
+                    int sum = 0;
                     for (int neighborIndex : neighborIndices) {
-                        sum += old[index + neighborIndex];
+                        sum += old[index + neighborIndex] == 1.f;
                     }
-                    if (old[index] > .5f) {
-                        if (sum < 2.f || sum >= 4.f) {
-                            board[index] = .0f;
+                    if (old[index] == 1.f) {
+                        if (sum < 2 || sum >= 4) {
+                            // board[index] = .0f;
+                            board[index] = old[index] * .75f;
                         } else {
                             board[index] = 1.f;
                         }
                     } else {
-                        if (sum >= 3.f && sum < 4.f) {
+                        if (sum >= 3 && sum < 4) {
                             board[index] = 1.f;
                         } else {
-                            board[index] = .0f;
+                            // board[index] = .0f;
+                            board[index] = old[index] * .66f;
                         }
                     }
                 }

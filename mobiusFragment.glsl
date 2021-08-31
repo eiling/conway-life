@@ -12,9 +12,16 @@ in vec2 uv;
 
 out vec3 color;
 
+float mod(float x, float y){
+    float val = x - y;
+    return val < 0 ? -val : val;
+}
+
 void main(){
+    float zero = 0.05;
+    float half_zero = zero / 2.0;
     float depth = (1.0 - gl_FragCoord.z);
-    depth = depth * depth;
+    depth = sqrt(depth);
 
 //    float u = uv.x;
 //    float v = uv.y;
@@ -27,7 +34,15 @@ void main(){
 //
 //    color = vec3(u, 0.0, v + 0.5) * depth;
 
-    int x = int(uv.y * (boardWidth));
-    int y = int(uv.x * (boardHeight));
-    color = vec3((board[x + 1 + (y + 1) * (boardWidth + 2)] + 1.0) / 2.0) * depth;
+    float raw_x = uv.y * (boardWidth) + half_zero;
+    float raw_y = uv.x * (boardHeight) + half_zero;
+    int x = int(raw_x);
+    int y = int(raw_y);
+    float dx = mod(raw_x, float(x));
+    float dy = mod(raw_y, float(y));
+    if (dx <= zero || dy <= zero) {
+        color = vec3(0.5, 0.0, 0.0);
+    } else {
+        color = vec3(0.0, 0.0, (board[x + 1 + (y + 1) * (boardWidth + 2)] + 1.0) / 2.0) * depth;
+    }
 }
