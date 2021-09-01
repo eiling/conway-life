@@ -12,8 +12,12 @@
 const int WIDTH = 800;
 const int HEIGHT = 800;
 
-const int BOARD_HEIGHT = 25;
+const int BOARD_HEIGHT = 10;
 const int BOARD_WIDTH = BOARD_HEIGHT * 5;
+
+const int TEX_SCALE = 32;
+
+const float FADE_CONST = .5f;
 
 const int STEPS = 300;
 const float RADIUS = .6f;
@@ -22,7 +26,7 @@ const float THICKNESS = .8f;
 const float PI = 3.1415f;
 
 const float PERIOD = 1.f / 30.f;
-// const float PERIOD = .1f;
+// const float PERIOD = .5f;
 
 float getRandom() {
     static std::random_device rd;
@@ -101,7 +105,7 @@ int main() {
 
     unsigned int fragmentShader;
     fragmentShader = glCreateShader(GL_FRAGMENT_SHADER);
-    if (!compileShader(fragmentShader, "mobiusFragment.glsl")) {
+    if (!compileShader(fragmentShader, "mobiusTexFragment.glsl")) {
         std::cout << "ERROR::SHADER::FRAGMENT::COMPILATION_FAILED" << std::endl;
         printErrorInfo(fragmentShader);
         return -1;
@@ -136,7 +140,7 @@ int main() {
     glDeleteShader(vertexShader);
     glDeleteShader(fragmentShader);
 
-    glClearColor(.0f, .0f, .0f, .0f);
+    glClearColor(1.f, 1.f, 1.f, 1.f);
 
     glEnable(GL_DEPTH_TEST);
     glDepthFunc(GL_LESS);
@@ -220,13 +224,25 @@ int main() {
     glBindBuffer(GL_ARRAY_BUFFER, vbo);
     glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
     glEnableVertexAttribArray(0);
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (void *) 0);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (void *) nullptr);
     glEnableVertexAttribArray(1);
     glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (void *) (3 * sizeof(float)));
+
+    unsigned int tex;
+    glGenTextures(1, &tex);
+    glBindTexture(GL_TEXTURE_2D, tex);
+
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
 
     float board1[(BOARD_WIDTH + 2) * (BOARD_HEIGHT + 2)];
     float board2[(BOARD_WIDTH + 2) * (BOARD_HEIGHT + 2)];
     float *board = board1;
+
+    float texBoard[BOARD_WIDTH * BOARD_HEIGHT * TEX_SCALE * TEX_SCALE];
 
     const int neighborIndices[] = {
             -(BOARD_WIDTH + 2) - 1,  // BOTTOM LEFT
@@ -253,7 +269,7 @@ int main() {
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, params_ssbo);
 
     float rotx = .0f;
-    float roty = PI / 2.f;
+    float roty = PI * 2.f / 3.f;
     float rotz = .0f;
 
     // double lastx, lasty;
@@ -284,7 +300,7 @@ int main() {
                     if (old[index] == 1.f) {
                         if (sum < 2 || sum >= 4) {
                             // board[index] = .0f;
-                            board[index] = old[index] * .75f;
+                            board[index] = old[index] * FADE_CONST;
                         } else {
                             board[index] = 1.f;
                         }
@@ -293,14 +309,20 @@ int main() {
                             board[index] = 1.f;
                         } else {
                             // board[index] = .0f;
-                            board[index] = old[index] * .66f;
+                            board[index] = old[index] * FADE_CONST;
+                        }
+                    }
+                    // texBoard[i + j * BOARD_WIDTH] = board[index];
+                    for (int ii = 1; ii < TEX_SCALE - 1; ++ii) {
+                        for (int jj = 1; jj < TEX_SCALE - 1; ++jj) {
+                            texBoard[TEX_SCALE * i + ii + TEX_SCALE * BOARD_WIDTH * (TEX_SCALE * j + jj)] = (board[index] + 1.f) / 2.f;
                         }
                     }
                 }
             }
 
             // rotx += PI / 180.f;
-            roty += PI / 360.f;
+            // roty += PI / 360.f;
             // rotz += PI / 270.f;
         }
 
@@ -314,6 +336,8 @@ int main() {
         glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, ssbo);
 
         glUniform3f(2, rotx, roty, rotz);
+
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, BOARD_WIDTH * TEX_SCALE, BOARD_HEIGHT * TEX_SCALE, 0, GL_RED, GL_FLOAT, texBoard);
 
         glDrawArrays(GL_TRIANGLES, 0, STEPS * 6);
 

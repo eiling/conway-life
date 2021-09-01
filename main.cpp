@@ -10,11 +10,11 @@
 
 const int WIDTH = 800;
 const int HEIGHT = 800;
-const int BOARD_CELL_SIZE = 2;
+const int BOARD_CELL_SIZE = 20;
 const int BOARD_WIDTH = WIDTH / BOARD_CELL_SIZE;
 const int BOARD_HEIGHT = HEIGHT / BOARD_CELL_SIZE;
 
-const float PERIOD = .005f;
+const float PERIOD = .5f;
 
 float getRandom() {
     static std::random_device rd;

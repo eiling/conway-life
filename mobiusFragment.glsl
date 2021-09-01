@@ -18,7 +18,7 @@ float mod(float x, float y){
 }
 
 void main(){
-    float zero = 0.05;
+    float zero = 0.025;
     float half_zero = zero / 2.0;
     float depth = (1.0 - gl_FragCoord.z);
     depth = sqrt(depth);
