@@ -12,12 +12,10 @@
 const int WIDTH = 800;
 const int HEIGHT = 800;
 
-const int BOARD_HEIGHT = 10;
+const int BOARD_HEIGHT = 100;
 const int BOARD_WIDTH = BOARD_HEIGHT * 5;
 
-const int TEX_SCALE = 32;
-
-const float FADE_CONST = .5f;
+const int TEX_SCALE = 32;  // matches local group size of texture compute shader
 
 const int STEPS = 300;
 const float RADIUS = .6f;
@@ -78,6 +76,7 @@ int main() {
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
     glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
+    glfwWindowHint(GLFW_OPENGL_DEBUG_CONTEXT, GLFW_TRUE);
 
     GLFWwindow *window = glfwCreateWindow(WIDTH, HEIGHT, "conway_life", nullptr, nullptr);
     if (!window) {
@@ -111,14 +110,6 @@ int main() {
         return -1;
     }
 
-    // unsigned int computeShader;
-    // computeShader = glCreateShader(GL_COMPUTE_SHADER);
-    // if (!compileShader(computeShader, "mobiusCompute.glsl")) {
-    //     std::cout << "ERROR::SHADER::COMPUTE::COMPILATION_FAILED" << std::endl;
-    //     printErrorInfo(computeShader);
-    //     return -1;
-    // }
-
     unsigned int shaderProgram;
     shaderProgram = glCreateProgram();
     glAttachShader(shaderProgram, vertexShader);
@@ -140,10 +131,60 @@ int main() {
     glDeleteShader(vertexShader);
     glDeleteShader(fragmentShader);
 
+    unsigned int lifeComputeShader;
+    lifeComputeShader = glCreateShader(GL_COMPUTE_SHADER);
+    if (!compileShader(lifeComputeShader, "mobiusLifeCompute.glsl")) {
+        std::cout << "ERROR::SHADER::COMPUTE::COMPILATION_FAILED" << std::endl;
+        printErrorInfo(lifeComputeShader);
+        return -1;
+    }
+
+    unsigned int lifeComputeProgram;
+    lifeComputeProgram = glCreateProgram();
+    glAttachShader(lifeComputeProgram, lifeComputeShader);
+    glLinkProgram(lifeComputeProgram);
+
+    glGetProgramiv(lifeComputeProgram, GL_LINK_STATUS, &success);
+    if (!success) {
+        glGetProgramInfoLog(lifeComputeProgram, 512, nullptr, infoLog);
+        std::cout << "ERROR::LIFE_BOARD::COMPUTE::PROGRAM::LINKING_FAILED" << std::endl;
+        std::cout << infoLog << std::endl;
+        return -1;
+    }
+
+    glDetachShader(lifeComputeProgram, lifeComputeShader);
+    glDeleteShader(lifeComputeShader);
+
+    unsigned int textureComputeShader;
+    textureComputeShader = glCreateShader(GL_COMPUTE_SHADER);
+    if (!compileShader(textureComputeShader, "mobiusTexCompute.glsl")) {
+        std::cout << "ERROR::SHADER::COMPUTE::COMPILATION_FAILED" << std::endl;
+        printErrorInfo(textureComputeShader);
+        return -1;
+    }
+
+    unsigned int textureComputeProgram;
+    textureComputeProgram = glCreateProgram();
+    glAttachShader(textureComputeProgram, textureComputeShader);
+    glLinkProgram(textureComputeProgram);
+
+    glGetProgramiv(textureComputeProgram, GL_LINK_STATUS, &success);
+    if (!success) {
+        glGetProgramInfoLog(textureComputeProgram, 512, nullptr, infoLog);
+        std::cout << "ERROR::TEXTURE::COMPUTE::PROGRAM::LINKING_FAILED" << std::endl;
+        std::cout << infoLog << std::endl;
+        return -1;
+    }
+
+    glDetachShader(textureComputeProgram, textureComputeShader);
+    glDeleteShader(textureComputeShader);
+
     glClearColor(1.f, 1.f, 1.f, 1.f);
 
     glEnable(GL_DEPTH_TEST);
     glDepthFunc(GL_LESS);
+
+    glEnable(GL_DEBUG_OUTPUT);
 
     float vertices[STEPS * 6 * 5];
     for (int i = 0; i < STEPS; ++i) {
@@ -213,11 +254,12 @@ int main() {
         vertices[6 * 5 * i + 5 * 5 + 4] = v0;
     }
 
-    unsigned int vao, vbo, ssbo, params_ssbo;
+    unsigned int vao, vbo, params_ssbo, board1_ssbo, board2_ssbo;
     glGenVertexArrays(1, &vao);
     glGenBuffers(1, &vbo);
-    glGenBuffers(1, &ssbo);
     glGenBuffers(1, &params_ssbo);
+    glGenBuffers(1, &board1_ssbo);
+    glGenBuffers(1, &board2_ssbo);
 
     glBindVertexArray(vao);
 
@@ -227,6 +269,36 @@ int main() {
     glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (void *) nullptr);
     glEnableVertexAttribArray(1);
     glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (void *) (3 * sizeof(float)));
+
+    const int params[] = {
+            BOARD_WIDTH,
+            BOARD_HEIGHT,
+            // neighborIndices:
+            -(BOARD_WIDTH + 2) - 1,  // BOTTOM LEFT
+            -(BOARD_WIDTH + 2),  // BOTTOM
+            -(BOARD_WIDTH + 2) + 1,  // BOTTOM RIGHT
+            -1,  // LEFT
+            // SKIP CENTER
+            +1,  // RIGHT
+            +(BOARD_WIDTH + 2) - 1,  // UPPER LEFT
+            +(BOARD_WIDTH + 2),  // UP
+            +(BOARD_WIDTH + 2) + 1  // UPPER RIGHT
+    };
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, params_ssbo);
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, params_ssbo);
+    glBufferData(GL_SHADER_STORAGE_BUFFER, sizeof(params), params, GL_DYNAMIC_COPY);
+
+    float board[(BOARD_WIDTH + 2) * (BOARD_HEIGHT + 2)];
+    bool boardFlag = true;
+    for (int i = 0; i < BOARD_WIDTH; ++i) {
+        for (int j = 0; j < BOARD_HEIGHT; ++j) {
+            board[i + 1 + (j + 1) * (BOARD_WIDTH + 2)] = getRandom();
+        }
+    }
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, board1_ssbo);
+    glBufferData(GL_SHADER_STORAGE_BUFFER, sizeof(board), board, GL_DYNAMIC_COPY);
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, board2_ssbo);
+    glBufferData(GL_SHADER_STORAGE_BUFFER, sizeof(board), nullptr, GL_DYNAMIC_COPY);  // set size for the second buffer??
 
     unsigned int tex;
     glGenTextures(1, &tex);
@@ -238,35 +310,9 @@ int main() {
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
 
-    float board1[(BOARD_WIDTH + 2) * (BOARD_HEIGHT + 2)];
-    float board2[(BOARD_WIDTH + 2) * (BOARD_HEIGHT + 2)];
-    float *board = board1;
-
-    float texBoard[BOARD_WIDTH * BOARD_HEIGHT * TEX_SCALE * TEX_SCALE];
-
-    const int neighborIndices[] = {
-            -(BOARD_WIDTH + 2) - 1,  // BOTTOM LEFT
-            -(BOARD_WIDTH + 2),  // BOTTOM
-            -(BOARD_WIDTH + 2) + 1,  // BOTTOM RIGHT
-            -1,  // LEFT
-            // SKIP CENTER
-            +1,  // RIGHT
-            +(BOARD_WIDTH + 2) - 1,  // UPPER LEFT
-            +(BOARD_WIDTH + 2),  // UP
-            +(BOARD_WIDTH + 2) + 1  // UPPER RIGHT
-    };
-
-    for (int i = 0; i < BOARD_WIDTH; ++i) {
-        for (int j = 0; j < BOARD_HEIGHT; ++j) {
-            board[i + 1 + (j + 1) * (BOARD_WIDTH + 2)] = getRandom();
-        }
-    }
-
-    const int params[] = {BOARD_WIDTH, BOARD_HEIGHT};
-
-    glBindBuffer(GL_SHADER_STORAGE_BUFFER, params_ssbo);
-    glBufferData(GL_SHADER_STORAGE_BUFFER, sizeof(params), params, GL_DYNAMIC_COPY);
-    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, params_ssbo);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, BOARD_WIDTH * TEX_SCALE, BOARD_HEIGHT * TEX_SCALE, 0, GL_RGBA, GL_FLOAT,
+                 nullptr);
+    glBindImageTexture(0, tex, 0, GL_FALSE, 0, GL_WRITE_ONLY, GL_RGBA32F);
 
     float rotx = .0f;
     float roty = PI * 2.f / 3.f;
@@ -284,46 +330,59 @@ int main() {
             referenceTime += PERIOD;
             std::cout << "Generation: " << ++gen << std::endl;
 
-            float *old = board;
-            board = board == board1 ? board2 : board1;
-            for (int i = 0; i < BOARD_HEIGHT; ++i) {
-                old[(i + 1) * (BOARD_WIDTH + 2)] = old[BOARD_WIDTH + (BOARD_HEIGHT - i) * (BOARD_WIDTH + 2)];
-                old[BOARD_WIDTH + 1 + (i + 1) * (BOARD_WIDTH + 2)] = old[1 + (BOARD_HEIGHT - i) * (BOARD_WIDTH + 2)];
-            }
-            for (int i = 0; i < BOARD_WIDTH; ++i) {
-                for (int j = 0; j < BOARD_HEIGHT; ++j) {
-                    int index = i + 1 + (j + 1) * (BOARD_WIDTH + 2);
-                    int sum = 0;
-                    for (int neighborIndex : neighborIndices) {
-                        sum += old[index + neighborIndex] == 1.f;
-                    }
-                    if (old[index] == 1.f) {
-                        if (sum < 2 || sum >= 4) {
-                            // board[index] = .0f;
-                            board[index] = old[index] * FADE_CONST;
-                        } else {
-                            board[index] = 1.f;
-                        }
-                    } else {
-                        if (sum >= 3 && sum < 4) {
-                            board[index] = 1.f;
-                        } else {
-                            // board[index] = .0f;
-                            board[index] = old[index] * FADE_CONST;
-                        }
-                    }
-                    // texBoard[i + j * BOARD_WIDTH] = board[index];
-                    for (int ii = 1; ii < TEX_SCALE - 1; ++ii) {
-                        for (int jj = 1; jj < TEX_SCALE - 1; ++jj) {
-                            texBoard[TEX_SCALE * i + ii + TEX_SCALE * BOARD_WIDTH * (TEX_SCALE * j + jj)] = (board[index] + 1.f) / 2.f;
-                        }
-                    }
-                }
-            }
+            // float *old = board;
+            // board = board == board1 ? board2 : board1;
+            // for (int i = 0; i < BOARD_HEIGHT; ++i) {
+            //     old[(i + 1) * (BOARD_WIDTH + 2)] = old[BOARD_WIDTH + (BOARD_HEIGHT - i) * (BOARD_WIDTH + 2)];
+            //     old[BOARD_WIDTH + 1 + (i + 1) * (BOARD_WIDTH + 2)] = old[1 + (BOARD_HEIGHT - i) * (BOARD_WIDTH + 2)];
+            // }
+            // for (int i = 0; i < BOARD_WIDTH; ++i) {
+            //     for (int j = 0; j < BOARD_HEIGHT; ++j) {
+            //         int index = i + 1 + (j + 1) * (BOARD_WIDTH + 2);
+            //         int sum = 0;
+            //         for (int neighborIndex : neighborIndices) {
+            //             sum += old[index + neighborIndex] == 1.f;
+            //         }
+            //         if (old[index] == 1.f) {
+            //             if (sum < 2 || sum >= 4) {
+            //                 // board[index] = .0f;
+            //                 board[index] = old[index] * FADE_CONST;
+            //             } else {
+            //                 board[index] = 1.f;
+            //             }
+            //         } else {
+            //             if (sum >= 3 && sum < 4) {
+            //                 board[index] = 1.f;
+            //             } else {
+            //                 // board[index] = .0f;
+            //                 board[index] = old[index] * FADE_CONST;
+            //             }
+            //         }
+            //     }
+            // }
 
             // rotx += PI / 180.f;
             // roty += PI / 360.f;
             // rotz += PI / 270.f;
+
+            boardFlag = !boardFlag;
+            if (boardFlag) {
+                glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, board1_ssbo);
+                glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, board2_ssbo);
+            } else {
+                glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, board2_ssbo);
+                glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, board1_ssbo);
+            }
+
+            glUseProgram(lifeComputeProgram);
+            glDispatchCompute(BOARD_WIDTH, BOARD_HEIGHT, 1);
+
+            glMemoryBarrier(GL_ALL_BARRIER_BITS);
+
+            glUseProgram(textureComputeProgram);
+            glDispatchCompute(BOARD_WIDTH, BOARD_HEIGHT, 1);
+
+            glMemoryBarrier(GL_ALL_BARRIER_BITS);
         }
 
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
@@ -331,13 +390,7 @@ int main() {
         glUseProgram(shaderProgram);
         glBindVertexArray(vao);
 
-        glBindBuffer(GL_SHADER_STORAGE_BUFFER, ssbo);
-        glBufferData(GL_SHADER_STORAGE_BUFFER, sizeof(board1), board, GL_DYNAMIC_COPY);
-        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, ssbo);
-
         glUniform3f(2, rotx, roty, rotz);
-
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, BOARD_WIDTH * TEX_SCALE, BOARD_HEIGHT * TEX_SCALE, 0, GL_RED, GL_FLOAT, texBoard);
 
         glDrawArrays(GL_TRIANGLES, 0, STEPS * 6);
 
