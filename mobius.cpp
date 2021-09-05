@@ -17,7 +17,7 @@ const int BOARD_WIDTH = BOARD_HEIGHT * 5;
 
 const int TEX_SCALE = 32;  // matches local group size of texture compute shader
 
-const int STEPS = 300;
+const int STEPS = 600;
 const float RADIUS = .6f;
 const float THICKNESS = .8f;
 
@@ -130,6 +130,30 @@ int main() {
     glDetachShader(shaderProgram, fragmentShader);
     glDeleteShader(vertexShader);
     glDeleteShader(fragmentShader);
+
+    unsigned int edgesComputeShader;
+    edgesComputeShader = glCreateShader(GL_COMPUTE_SHADER);
+    if (!compileShader(edgesComputeShader, "mobiusEdgesCompute.glsl")) {
+        std::cout << "ERROR::SHADER::COMPUTE::COMPILATION_FAILED" << std::endl;
+        printErrorInfo(edgesComputeShader);
+        return -1;
+    }
+
+    unsigned int edgesComputeProgram;
+    edgesComputeProgram = glCreateProgram();
+    glAttachShader(edgesComputeProgram, edgesComputeShader);
+    glLinkProgram(edgesComputeProgram);
+
+    glGetProgramiv(edgesComputeProgram, GL_LINK_STATUS, &success);
+    if (!success) {
+        glGetProgramInfoLog(edgesComputeProgram, 512, nullptr, infoLog);
+        std::cout << "ERROR::LIFE_BOARD::COMPUTE::PROGRAM::LINKING_FAILED" << std::endl;
+        std::cout << infoLog << std::endl;
+        return -1;
+    }
+
+    glDetachShader(edgesComputeProgram, edgesComputeShader);
+    glDeleteShader(edgesComputeShader);
 
     unsigned int lifeComputeShader;
     lifeComputeShader = glCreateShader(GL_COMPUTE_SHADER);
@@ -305,7 +329,7 @@ int main() {
     glBindTexture(GL_TEXTURE_2D, tex);
 
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
 
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
@@ -318,8 +342,6 @@ int main() {
     float roty = PI * 2.f / 3.f;
     float rotz = .0f;
 
-    // double lastx, lasty;
-
     int gen = 0;
     double referenceTime = glfwGetTime();
     while (!glfwWindowShouldClose(window)) {
@@ -330,41 +352,6 @@ int main() {
             referenceTime += PERIOD;
             std::cout << "Generation: " << ++gen << std::endl;
 
-            // float *old = board;
-            // board = board == board1 ? board2 : board1;
-            // for (int i = 0; i < BOARD_HEIGHT; ++i) {
-            //     old[(i + 1) * (BOARD_WIDTH + 2)] = old[BOARD_WIDTH + (BOARD_HEIGHT - i) * (BOARD_WIDTH + 2)];
-            //     old[BOARD_WIDTH + 1 + (i + 1) * (BOARD_WIDTH + 2)] = old[1 + (BOARD_HEIGHT - i) * (BOARD_WIDTH + 2)];
-            // }
-            // for (int i = 0; i < BOARD_WIDTH; ++i) {
-            //     for (int j = 0; j < BOARD_HEIGHT; ++j) {
-            //         int index = i + 1 + (j + 1) * (BOARD_WIDTH + 2);
-            //         int sum = 0;
-            //         for (int neighborIndex : neighborIndices) {
-            //             sum += old[index + neighborIndex] == 1.f;
-            //         }
-            //         if (old[index] == 1.f) {
-            //             if (sum < 2 || sum >= 4) {
-            //                 // board[index] = .0f;
-            //                 board[index] = old[index] * FADE_CONST;
-            //             } else {
-            //                 board[index] = 1.f;
-            //             }
-            //         } else {
-            //             if (sum >= 3 && sum < 4) {
-            //                 board[index] = 1.f;
-            //             } else {
-            //                 // board[index] = .0f;
-            //                 board[index] = old[index] * FADE_CONST;
-            //             }
-            //         }
-            //     }
-            // }
-
-            // rotx += PI / 180.f;
-            // roty += PI / 360.f;
-            // rotz += PI / 270.f;
-
             boardFlag = !boardFlag;
             if (boardFlag) {
                 glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, board1_ssbo);
@@ -373,6 +360,11 @@ int main() {
                 glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, board2_ssbo);
                 glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, board1_ssbo);
             }
+
+            glUseProgram(edgesComputeProgram);
+            glDispatchCompute(BOARD_HEIGHT, 1, 1);
+
+            glMemoryBarrier(GL_ALL_BARRIER_BITS);
 
             glUseProgram(lifeComputeProgram);
             glDispatchCompute(BOARD_WIDTH, BOARD_HEIGHT, 1);
@@ -383,6 +375,8 @@ int main() {
             glDispatchCompute(BOARD_WIDTH, BOARD_HEIGHT, 1);
 
             glMemoryBarrier(GL_ALL_BARRIER_BITS);
+
+            glGenerateMipmap(GL_TEXTURE_2D);
         }
 
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);

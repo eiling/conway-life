@@ -14,5 +14,4 @@ void main(){
     float depth = (1.0 - gl_FragCoord.z);
     depth = sqrt(depth);
     color = texture(tex, vec2(uv.y, uv.x)).xyz * depth;
-    color = vec3(color.z, color.z, color.z);
 }

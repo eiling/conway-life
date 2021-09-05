@@ -16,11 +16,7 @@ layout(std430, binding = 2) buffer OldBoard {
 };
 
 void main() {
-    float fadeConst = 0.5;
-//    for (int i = 0; i < boardWidth; ++i) {
-//        oldBoard[(i + 1) * (boardWidth + 2)] = oldBoard[boardWidth + (boardHeight - i) * (boardWidth + 2)];
-//        oldBoard[boardWidth + 1 + (i + 1) * (boardWidth + 2)] = oldBoard[1 + (boardHeight - i) * (boardWidth + 2)];
-//    }
+    float fadeConst = 0.5;  // place this in a buffer/uniform
     uint index = gl_WorkGroupID.x + 1 + (gl_WorkGroupID.y + 1) * (boardWidth + 2);
     int sum = 0;
     for (int k = 0; k < 8; ++k) {
