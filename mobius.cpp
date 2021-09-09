@@ -13,10 +13,10 @@ struct st_shaderInfo {
     unsigned int type;
     const char *file;
 } allShaders[] = {{GL_VERTEX_SHADER,   "mobiusVertex.glsl"},
-                  {GL_FRAGMENT_SHADER, "mobiusTexFragment.glsl"},
+                  {GL_FRAGMENT_SHADER, "fragment.glsl"},
                   {GL_COMPUTE_SHADER,  "mobiusEdgesCompute.glsl"},
-                  {GL_COMPUTE_SHADER,  "mobiusLifeCompute.glsl"},
-                  {GL_COMPUTE_SHADER,  "mobiusTexCompute.glsl"}};
+                  {GL_COMPUTE_SHADER,  "lifeCompute.glsl"},
+                  {GL_COMPUTE_SHADER,  "texCompute.glsl"}};
 
 const int WIDTH = 800;
 const int HEIGHT = 800;

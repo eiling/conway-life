@@ -8,13 +8,24 @@
 #include <streambuf>
 #include <random>
 
+struct st_shaderInfo {
+    unsigned int type;
+    const char *file;
+} allShaders[] = {{GL_VERTEX_SHADER,   "vertex.glsl"},
+                  {GL_FRAGMENT_SHADER, "fragment.glsl"},
+                  {GL_COMPUTE_SHADER,  "lifeCompute.glsl"},
+                  {GL_COMPUTE_SHADER,  "texCompute.glsl"}};
+
 const int WIDTH = 800;
 const int HEIGHT = 800;
-const int BOARD_CELL_SIZE = 20;
-const int BOARD_WIDTH = WIDTH / BOARD_CELL_SIZE;
-const int BOARD_HEIGHT = HEIGHT / BOARD_CELL_SIZE;
 
-const float PERIOD = .5f;
+const int BOARD_HEIGHT = 200;
+const int BOARD_WIDTH = BOARD_HEIGHT;
+
+const int TEX_SCALE = 32;  // matches local group size of texture compute shader
+
+const float PERIOD = 1.f / 30.f;
+// const float PERIOD = .5f;
 
 float getRandom() {
     static std::random_device rd;
@@ -23,24 +34,10 @@ float getRandom() {
     return (float) d(e);
 }
 
-int compileShader(const unsigned int shader, const char *file) {
-    std::ifstream t(file);
-    std::string str((std::istreambuf_iterator<char>(t)), std::istreambuf_iterator<char>());
-    const char *c = str.c_str();
-
-    glShaderSource(shader, 1, &c, nullptr);
-    glCompileShader(shader);
-
-    int success;
-    glGetShaderiv(shader, GL_COMPILE_STATUS, &success);
-
-    return success;
-}
-
-void printErrorInfo(const unsigned int shader) {
-    char infoLog[512];
-    glGetShaderInfoLog(shader, 512, nullptr, infoLog);
-    std::cout << infoLog << std::endl;
+void processInput(GLFWwindow *window) {
+    if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS) {
+        glfwSetWindowShouldClose(window, true);
+    }
 }
 
 void errorCallback(int error, const char *description) {
@@ -48,10 +45,57 @@ void errorCallback(int error, const char *description) {
     std::cout << description << std::endl;
 }
 
-void processInput(GLFWwindow *window) {
-    if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS) {
-        glfwSetWindowShouldClose(window, true);
+int createShader(unsigned int *shader, unsigned int type, const char *file) {
+    *shader = glCreateShader(type);
+
+    std::ifstream t(file);
+    std::string str((std::istreambuf_iterator<char>(t)), std::istreambuf_iterator<char>());
+    const char *c = str.c_str();
+
+    glShaderSource(*shader, 1, &c, nullptr);
+    glCompileShader(*shader);
+
+    int success;
+    glGetShaderiv(*shader, GL_COMPILE_STATUS, &success);
+
+    if (!success) {
+        char infoLog[512];
+        glGetShaderInfoLog(*shader, 512, nullptr, infoLog);
+        std::cout << "ERROR::SHADER::" << type << "::COMPILATION_FAILED" << std::endl;
+        std::cout << infoLog << std::endl;
     }
+    return success;
+}
+
+int createAndLinkProgram(unsigned int *program, st_shaderInfo *shaders, int shaderCount) {
+    unsigned int shaderIds[shaderCount];
+    int success, shaderStatus = createShader(shaderIds, shaders[0].type, shaders[0].file);
+    for (int i = 1; shaderStatus && i < shaderCount; ++i) {
+        shaderStatus = createShader(shaderIds + i, shaders[i].type, shaders[i].file);
+    }
+
+    if (shaderStatus) {
+        *program = glCreateProgram();
+        for (int i = 0; i < shaderCount; ++i) {
+            glAttachShader(*program, shaderIds[i]);
+        }
+        glLinkProgram(*program);
+
+        glGetProgramiv(*program, GL_LINK_STATUS, &success);
+        if (!success) {
+            char infoLog[512];
+            glGetProgramInfoLog(*program, 512, nullptr, infoLog);
+            std::cout << "ERROR::PROGRAM::LINKING_FAILED" << std::endl;
+            std::cout << infoLog << std::endl;
+        }
+    }
+
+    for (int i = 0; i < shaderCount; ++i) {
+        glDetachShader(*program, shaderIds[i]);
+        glDeleteShader(shaderIds[i]);
+    }
+
+    return shaderStatus && success;
 }
 
 int main() {
@@ -83,155 +127,132 @@ int main() {
 
     std::cout << "GLVersion: " << GLVersion.major << "." << GLVersion.minor << std::endl;
 
-    unsigned int vertexShader;
-    vertexShader = glCreateShader(GL_VERTEX_SHADER);
-    if (!compileShader(vertexShader, "vertex.glsl")) {
-        std::cout << "ERROR::SHADER::VERTEX::COMPILATION_FAILED" << std::endl;
-        printErrorInfo(vertexShader);
-        return -1;
-    }
+    unsigned int mainProgram, lifeComputeProgram, textureComputeProgram;
+    if (createAndLinkProgram(&mainProgram, allShaders, 2) &&
+        createAndLinkProgram(&lifeComputeProgram, allShaders + 2, 1) &&
+        createAndLinkProgram(&textureComputeProgram, allShaders + 3, 1)) {
+        glClearColor(1.f, 1.f, 1.f, 1.f);
 
-    unsigned int fragmentShader;
-    fragmentShader = glCreateShader(GL_FRAGMENT_SHADER);
-    if (!compileShader(fragmentShader, "fragment.glsl")) {
-        std::cout << "ERROR::SHADER::FRAGMENT::COMPILATION_FAILED" << std::endl;
-        printErrorInfo(fragmentShader);
-        return -1;
-    }
+        glEnable(GL_DEBUG_OUTPUT);
 
-    unsigned int shaderProgram;
-    shaderProgram = glCreateProgram();
-    glAttachShader(shaderProgram, vertexShader);
-    glAttachShader(shaderProgram, fragmentShader);
-    glLinkProgram(shaderProgram);
+        float vertices[6 * 4] = {
+                -1, 1, 0, 1,
+                -1, -1, 0, 0,
+                1, -1, 1, 0,
+                -1, 1, 0, 1,
+                1, -1, 1, 0,
+                1, 1, 1, 1
+        };
 
-    int success;
-    char infoLog[512];
-    glGetProgramiv(shaderProgram, GL_LINK_STATUS, &success);
-    if (!success) {
-        glGetProgramInfoLog(shaderProgram, 512, nullptr, infoLog);
-        std::cout << "ERROR::SHADER::PROGRAM::LINKING_FAILED" << std::endl;
-        std::cout << infoLog << std::endl;
-        return -1;
-    }
+        unsigned int vao, vbo, params_ssbo, board1_ssbo, board2_ssbo;
+        glGenVertexArrays(1, &vao);
+        glGenBuffers(1, &vbo);
+        glGenBuffers(1, &params_ssbo);
+        glGenBuffers(1, &board1_ssbo);
+        glGenBuffers(1, &board2_ssbo);
 
-    glDetachShader(shaderProgram, vertexShader);
-    glDetachShader(shaderProgram, fragmentShader);
-    glDeleteShader(vertexShader);
-    glDeleteShader(fragmentShader);
-
-    float vertices[] = {
-            -1.f, 1.f,
-            -1.f, -1.f,
-            1.f, 1.f,
-            1.f, 1.f,
-            -1.f, -1.f,
-            1.f, -1.f,
-    };
-
-    float steps[] = {
-            20.f,
-            1.f,
-            20.f,
-            20.f,
-            1.f,
-            1.f,
-    };
-
-    unsigned int vao, vbo, ssbo, params_ssbo;
-    glGenVertexArrays(1, &vao);
-    glGenBuffers(1, &vbo);
-    glGenBuffers(1, &ssbo);
-    glGenBuffers(1, &params_ssbo);
-
-    glBindVertexArray(vao);
-
-    glBindBuffer(GL_ARRAY_BUFFER, vbo);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(vertices) + sizeof(steps), vertices, GL_STATIC_DRAW);
-    glBufferSubData(GL_ARRAY_BUFFER, sizeof(vertices), sizeof(steps), steps);
-    glEnableVertexAttribArray(0);
-    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(float), (void *) 0);
-    glEnableVertexAttribArray(1);
-    glVertexAttribPointer(1, 1, GL_FLOAT, GL_FALSE, sizeof(float), (void *) sizeof(vertices));
-
-    float board1[(BOARD_WIDTH + 2) * (BOARD_HEIGHT + 2)];
-    float board2[(BOARD_WIDTH + 2) * (BOARD_HEIGHT + 2)];
-    float *board = board1;
-
-    const int neighborIndices[] = {
-            -(BOARD_WIDTH + 2) - 1,  // BOTTOM LEFT
-            -(BOARD_WIDTH + 2),  // BOTTOM
-            -(BOARD_WIDTH + 2) + 1,  // BOTTOM RIGHT
-            -1,  // LEFT
-            // SKIP CENTER
-            +1,  // RIGHT
-            +(BOARD_WIDTH + 2) - 1,  // UPPER LEFT
-            +(BOARD_WIDTH + 2),  // UP
-            +(BOARD_WIDTH + 2) + 1  // UPPER RIGHT
-    };
-
-    for (int i = 0; i < BOARD_WIDTH; ++i) {
-        for (int j = 0; j < BOARD_HEIGHT; ++j) {
-            board[i + 1 + (j + 1) * (BOARD_WIDTH + 2)] = getRandom();
-        }
-    }
-
-    const int params[] = {WIDTH, HEIGHT, BOARD_WIDTH, BOARD_HEIGHT};
-
-    glBindBuffer(GL_SHADER_STORAGE_BUFFER, params_ssbo);
-    glBufferData(GL_SHADER_STORAGE_BUFFER, 4 * sizeof(int), params, GL_DYNAMIC_COPY);
-    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, params_ssbo);
-
-    int gen = 0;
-    double referenceTime = glfwGetTime();
-    while (!glfwWindowShouldClose(window)) {
-        processInput(window);
-
-        if (glfwGetTime() - referenceTime > PERIOD) {
-            referenceTime += PERIOD;
-            std::cout << "Generation: " << ++gen << std::endl;
-            float *old = board;
-            board = board == board1 ? board2 : board1;
-            for (int i = 0; i < BOARD_WIDTH; ++i) {
-                for (int j = 0; j < BOARD_HEIGHT; ++j) {
-                    int index = i + 1 + (j + 1) * (BOARD_WIDTH + 2);
-                    float sum = .0f;
-                    for (int neighborIndex : neighborIndices) {
-                        sum += old[index + neighborIndex];
-                    }
-                    if (old[index] > .5f) {
-                        if (sum < 2.f || sum >= 4.f) {
-                            board[index] = .0f;
-                        } else {
-                            board[index] = 1.f;
-                        }
-                    } else {
-                        if (sum >= 3.f && sum < 4.f) {
-                            board[index] = 1.f;
-                        } else {
-                            board[index] = .0f;
-                        }
-                    }
-                }
-            }
-        }
-
-        glClear(GL_COLOR_BUFFER_BIT);
-
-        glUseProgram(shaderProgram);
         glBindVertexArray(vao);
 
-        glBindBuffer(GL_SHADER_STORAGE_BUFFER, ssbo);
-        glBufferData(GL_SHADER_STORAGE_BUFFER, sizeof(board1), board, GL_DYNAMIC_COPY);
-        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, ssbo);
+        glBindBuffer(GL_ARRAY_BUFFER, vbo);
+        glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
+        glEnableVertexAttribArray(0);
+        glEnableVertexAttribArray(1);
+        glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void *) nullptr);
+        glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void *) (2 * sizeof(float)));
 
-        glDrawArrays(GL_TRIANGLES, 0, 6);
+        const int params[] = {
+                BOARD_WIDTH,
+                BOARD_HEIGHT,
+                // neighborIndices:
+                -(BOARD_WIDTH + 2) - 1,  // BOTTOM LEFT
+                -(BOARD_WIDTH + 2),  // BOTTOM
+                -(BOARD_WIDTH + 2) + 1,  // BOTTOM RIGHT
+                -1,  // LEFT
+                // SKIP CENTER
+                +1,  // RIGHT
+                +(BOARD_WIDTH + 2) - 1,  // UPPER LEFT
+                +(BOARD_WIDTH + 2),  // UP
+                +(BOARD_WIDTH + 2) + 1  // UPPER RIGHT
+        };
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, params_ssbo);
+        glBindBuffer(GL_SHADER_STORAGE_BUFFER, params_ssbo);
+        glBufferData(GL_SHADER_STORAGE_BUFFER, sizeof(params), params, GL_DYNAMIC_COPY);
 
-        glfwSwapBuffers(window);
-        glfwPollEvents();
+        float board[(BOARD_WIDTH + 2) * (BOARD_HEIGHT + 2)];
+        bool boardFlag = true;
+        for (int i = 0; i < BOARD_WIDTH; ++i) {
+            for (int j = 0; j < BOARD_HEIGHT; ++j) {
+                board[i + 1 + (j + 1) * (BOARD_WIDTH + 2)] = getRandom();
+            }
+        }
+        glBindBuffer(GL_SHADER_STORAGE_BUFFER, board1_ssbo);
+        glBufferData(GL_SHADER_STORAGE_BUFFER, sizeof(board), board, GL_DYNAMIC_COPY);
+        glBindBuffer(GL_SHADER_STORAGE_BUFFER, board2_ssbo);
+        glBufferData(GL_SHADER_STORAGE_BUFFER, sizeof(board), nullptr,
+                     GL_DYNAMIC_COPY);  // set size for the second buffer??
+
+        unsigned int tex;
+        glGenTextures(1, &tex);
+        glBindTexture(GL_TEXTURE_2D, tex);
+
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, BOARD_WIDTH * TEX_SCALE, BOARD_HEIGHT * TEX_SCALE, 0, GL_RGBA,
+                     GL_FLOAT,
+                     nullptr);
+        glBindImageTexture(0, tex, 0, GL_FALSE, 0, GL_WRITE_ONLY, GL_RGBA32F);
+
+        int gen = 0;
+        double referenceTime = glfwGetTime();
+        while (!glfwWindowShouldClose(window)) {
+            processInput(window);
+
+            double now = glfwGetTime();
+            while (now - referenceTime > PERIOD) {
+                referenceTime += PERIOD;
+                std::cout << "Generation: " << ++gen << std::endl;
+
+                boardFlag = !boardFlag;
+                if (boardFlag) {
+                    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, board1_ssbo);
+                    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, board2_ssbo);
+                } else {
+                    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, board2_ssbo);
+                    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, board1_ssbo);
+                }
+
+                glUseProgram(lifeComputeProgram);
+                glDispatchCompute(BOARD_WIDTH, BOARD_HEIGHT, 1);
+
+                glMemoryBarrier(GL_ALL_BARRIER_BITS);
+
+                glUseProgram(textureComputeProgram);
+                glDispatchCompute(BOARD_WIDTH, BOARD_HEIGHT, 1);
+
+                glMemoryBarrier(GL_ALL_BARRIER_BITS);
+
+                glGenerateMipmap(GL_TEXTURE_2D);
+            }
+
+            glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+            glUseProgram(mainProgram);
+            glBindVertexArray(vao);
+
+            glDrawArrays(GL_TRIANGLES, 0, 6);
+
+            glfwSwapBuffers(window);
+            glfwPollEvents();
+        }
     }
 
-    glDeleteProgram(shaderProgram);
+    glDeleteProgram(mainProgram);
+    glDeleteProgram(lifeComputeProgram);
+    glDeleteProgram(textureComputeProgram);
 
     glfwTerminate();
 

@@ -13,7 +13,7 @@ add_subdirectory(lib/glfw)
 
 include_directories(lib)
 
-#add_executable(conway_life main.cpp lib/glad/glad.h lib/glad/glad.c)
-add_executable(conway_life mobius.cpp lib/glad/glad.h lib/glad/glad.c)
+add_executable(conway_life main.cpp lib/glad/glad.h lib/glad/glad.c)
+#add_executable(conway_life mobius.cpp lib/glad/glad.h lib/glad/glad.c)
 #target_link_libraries(conway_life glfw OpenGL)
 target_link_libraries(conway_life glfw opengl32)
