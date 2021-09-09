@@ -9,6 +9,15 @@
 #include <random>
 #include <cmath>
 
+struct st_shaderInfo {
+    unsigned int type;
+    const char *file;
+} allShaders[] = {{GL_VERTEX_SHADER,   "mobiusVertex.glsl"},
+                  {GL_FRAGMENT_SHADER, "mobiusTexFragment.glsl"},
+                  {GL_COMPUTE_SHADER,  "mobiusEdgesCompute.glsl"},
+                  {GL_COMPUTE_SHADER,  "mobiusLifeCompute.glsl"},
+                  {GL_COMPUTE_SHADER,  "mobiusTexCompute.glsl"}};
+
 const int WIDTH = 800;
 const int HEIGHT = 800;
 
@@ -33,6 +42,17 @@ float getRandom() {
     return (float) d(e);
 }
 
+void processInput(GLFWwindow *window) {
+    if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS) {
+        glfwSetWindowShouldClose(window, true);
+    }
+}
+
+void errorCallback(int error, const char *description) {
+    std::cout << "Code: " << error << std::endl;
+    std::cout << description << std::endl;
+}
+
 int compileShader(const unsigned int shader, const char *file) {
     std::ifstream t(file);
     std::string str((std::istreambuf_iterator<char>(t)), std::istreambuf_iterator<char>());
@@ -47,21 +67,48 @@ int compileShader(const unsigned int shader, const char *file) {
     return success;
 }
 
-void printErrorInfo(const unsigned int shader) {
-    char infoLog[512];
-    glGetShaderInfoLog(shader, 512, nullptr, infoLog);
-    std::cout << infoLog << std::endl;
-}
-
-void errorCallback(int error, const char *description) {
-    std::cout << "Code: " << error << std::endl;
-    std::cout << description << std::endl;
-}
-
-void processInput(GLFWwindow *window) {
-    if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS) {
-        glfwSetWindowShouldClose(window, true);
+unsigned int createShader(unsigned int type, const char *file) {
+    unsigned int shader;
+    shader = glCreateShader(type);
+    if (!compileShader(shader, file)) {
+        char infoLog[512];
+        glGetShaderInfoLog(shader, 512, nullptr, infoLog);
+        std::cout << "ERROR::SHADER::" << type << "::COMPILATION_FAILED" << std::endl;
+        std::cout << infoLog << std::endl;
+        return -1;
     }
+    return shader;
+}
+
+unsigned int createAndLinkProgram(st_shaderInfo *shaders, int shaderCount) {
+    unsigned int shaderIds[shaderCount];
+    for (int i = 0; i < shaderCount; ++i) {
+        shaderIds[i] = createShader(shaders[i].type, shaders[i].file);
+    }
+
+    unsigned int program;
+    program = glCreateProgram();
+    for (int i = 0; i < shaderCount; ++i) {
+        glAttachShader(program, shaderIds[i]);
+    }
+    glLinkProgram(program);
+
+    int success;
+    glGetProgramiv(program, GL_LINK_STATUS, &success);
+    if (!success) {
+        char infoLog[512];
+        glGetProgramInfoLog(program, 512, nullptr, infoLog);
+        std::cout << "ERROR::PROGRAM::LINKING_FAILED" << std::endl;
+        std::cout << infoLog << std::endl;
+        return -1;
+    }
+
+    for (int i = 0; i < shaderCount; ++i) {
+        glDetachShader(program, shaderIds[i]);
+        glDeleteShader(shaderIds[i]);
+    }
+
+    return program;
 }
 
 int main() {
@@ -94,114 +141,10 @@ int main() {
 
     std::cout << "GLVersion: " << GLVersion.major << "." << GLVersion.minor << std::endl;
 
-    unsigned int vertexShader;
-    vertexShader = glCreateShader(GL_VERTEX_SHADER);
-    if (!compileShader(vertexShader, "mobiusVertex.glsl")) {
-        std::cout << "ERROR::SHADER::VERTEX::COMPILATION_FAILED" << std::endl;
-        printErrorInfo(vertexShader);
-        return -1;
-    }
-
-    unsigned int fragmentShader;
-    fragmentShader = glCreateShader(GL_FRAGMENT_SHADER);
-    if (!compileShader(fragmentShader, "mobiusTexFragment.glsl")) {
-        std::cout << "ERROR::SHADER::FRAGMENT::COMPILATION_FAILED" << std::endl;
-        printErrorInfo(fragmentShader);
-        return -1;
-    }
-
-    unsigned int shaderProgram;
-    shaderProgram = glCreateProgram();
-    glAttachShader(shaderProgram, vertexShader);
-    glAttachShader(shaderProgram, fragmentShader);
-    glLinkProgram(shaderProgram);
-
-    int success;
-    char infoLog[512];
-    glGetProgramiv(shaderProgram, GL_LINK_STATUS, &success);
-    if (!success) {
-        glGetProgramInfoLog(shaderProgram, 512, nullptr, infoLog);
-        std::cout << "ERROR::SHADER::PROGRAM::LINKING_FAILED" << std::endl;
-        std::cout << infoLog << std::endl;
-        return -1;
-    }
-
-    glDetachShader(shaderProgram, vertexShader);
-    glDetachShader(shaderProgram, fragmentShader);
-    glDeleteShader(vertexShader);
-    glDeleteShader(fragmentShader);
-
-    unsigned int edgesComputeShader;
-    edgesComputeShader = glCreateShader(GL_COMPUTE_SHADER);
-    if (!compileShader(edgesComputeShader, "mobiusEdgesCompute.glsl")) {
-        std::cout << "ERROR::SHADER::COMPUTE::COMPILATION_FAILED" << std::endl;
-        printErrorInfo(edgesComputeShader);
-        return -1;
-    }
-
-    unsigned int edgesComputeProgram;
-    edgesComputeProgram = glCreateProgram();
-    glAttachShader(edgesComputeProgram, edgesComputeShader);
-    glLinkProgram(edgesComputeProgram);
-
-    glGetProgramiv(edgesComputeProgram, GL_LINK_STATUS, &success);
-    if (!success) {
-        glGetProgramInfoLog(edgesComputeProgram, 512, nullptr, infoLog);
-        std::cout << "ERROR::LIFE_BOARD::COMPUTE::PROGRAM::LINKING_FAILED" << std::endl;
-        std::cout << infoLog << std::endl;
-        return -1;
-    }
-
-    glDetachShader(edgesComputeProgram, edgesComputeShader);
-    glDeleteShader(edgesComputeShader);
-
-    unsigned int lifeComputeShader;
-    lifeComputeShader = glCreateShader(GL_COMPUTE_SHADER);
-    if (!compileShader(lifeComputeShader, "mobiusLifeCompute.glsl")) {
-        std::cout << "ERROR::SHADER::COMPUTE::COMPILATION_FAILED" << std::endl;
-        printErrorInfo(lifeComputeShader);
-        return -1;
-    }
-
-    unsigned int lifeComputeProgram;
-    lifeComputeProgram = glCreateProgram();
-    glAttachShader(lifeComputeProgram, lifeComputeShader);
-    glLinkProgram(lifeComputeProgram);
-
-    glGetProgramiv(lifeComputeProgram, GL_LINK_STATUS, &success);
-    if (!success) {
-        glGetProgramInfoLog(lifeComputeProgram, 512, nullptr, infoLog);
-        std::cout << "ERROR::LIFE_BOARD::COMPUTE::PROGRAM::LINKING_FAILED" << std::endl;
-        std::cout << infoLog << std::endl;
-        return -1;
-    }
-
-    glDetachShader(lifeComputeProgram, lifeComputeShader);
-    glDeleteShader(lifeComputeShader);
-
-    unsigned int textureComputeShader;
-    textureComputeShader = glCreateShader(GL_COMPUTE_SHADER);
-    if (!compileShader(textureComputeShader, "mobiusTexCompute.glsl")) {
-        std::cout << "ERROR::SHADER::COMPUTE::COMPILATION_FAILED" << std::endl;
-        printErrorInfo(textureComputeShader);
-        return -1;
-    }
-
-    unsigned int textureComputeProgram;
-    textureComputeProgram = glCreateProgram();
-    glAttachShader(textureComputeProgram, textureComputeShader);
-    glLinkProgram(textureComputeProgram);
-
-    glGetProgramiv(textureComputeProgram, GL_LINK_STATUS, &success);
-    if (!success) {
-        glGetProgramInfoLog(textureComputeProgram, 512, nullptr, infoLog);
-        std::cout << "ERROR::TEXTURE::COMPUTE::PROGRAM::LINKING_FAILED" << std::endl;
-        std::cout << infoLog << std::endl;
-        return -1;
-    }
-
-    glDetachShader(textureComputeProgram, textureComputeShader);
-    glDeleteShader(textureComputeShader);
+    unsigned int mainProgram = createAndLinkProgram(allShaders, 2);
+    unsigned int edgesComputeProgram = createAndLinkProgram(allShaders + 2, 1);
+    unsigned int lifeComputeProgram = createAndLinkProgram(allShaders + 3, 1);
+    unsigned int textureComputeProgram = createAndLinkProgram(allShaders + 4, 1);
 
     glClearColor(1.f, 1.f, 1.f, 1.f);
 
@@ -322,7 +265,8 @@ int main() {
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, board1_ssbo);
     glBufferData(GL_SHADER_STORAGE_BUFFER, sizeof(board), board, GL_DYNAMIC_COPY);
     glBindBuffer(GL_SHADER_STORAGE_BUFFER, board2_ssbo);
-    glBufferData(GL_SHADER_STORAGE_BUFFER, sizeof(board), nullptr, GL_DYNAMIC_COPY);  // set size for the second buffer??
+    glBufferData(GL_SHADER_STORAGE_BUFFER, sizeof(board), nullptr,
+                 GL_DYNAMIC_COPY);  // set size for the second buffer??
 
     unsigned int tex;
     glGenTextures(1, &tex);
@@ -381,7 +325,7 @@ int main() {
 
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-        glUseProgram(shaderProgram);
+        glUseProgram(mainProgram);
         glBindVertexArray(vao);
 
         glUniform3f(2, rotx, roty, rotz);
@@ -392,7 +336,10 @@ int main() {
         glfwPollEvents();
     }
 
-    glDeleteProgram(shaderProgram);
+    glDeleteProgram(mainProgram);
+    glDeleteProgram(edgesComputeProgram);
+    glDeleteProgram(lifeComputeProgram);
+    glDeleteProgram(textureComputeProgram);
 
     glfwTerminate();
 
