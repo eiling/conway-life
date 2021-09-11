@@ -19,10 +19,10 @@ struct st_shaderInfo {
 const int WIDTH = 800;
 const int HEIGHT = 800;
 
-const int BOARD_HEIGHT = 200;
+const int BOARD_HEIGHT = 800;
 const int BOARD_WIDTH = BOARD_HEIGHT;
 
-const int TEX_SCALE = 32;  // matches local group size of texture compute shader
+const int TEX_SCALE = 1;  // matches local group size of texture compute shader
 
 const float PERIOD = 1.f / 30.f;
 // const float PERIOD = .5f;
@@ -178,7 +178,8 @@ int main() {
         glBindBuffer(GL_SHADER_STORAGE_BUFFER, params_ssbo);
         glBufferData(GL_SHADER_STORAGE_BUFFER, sizeof(params), params, GL_DYNAMIC_COPY);
 
-        float board[(BOARD_WIDTH + 2) * (BOARD_HEIGHT + 2)];
+        const int boardSize = (BOARD_WIDTH + 2) * (BOARD_HEIGHT + 2);
+        auto *board = (float *) (calloc(boardSize, sizeof(float)));
         bool boardFlag = true;
         for (int i = 0; i < BOARD_WIDTH; ++i) {
             for (int j = 0; j < BOARD_HEIGHT; ++j) {
@@ -186,10 +187,11 @@ int main() {
             }
         }
         glBindBuffer(GL_SHADER_STORAGE_BUFFER, board1_ssbo);
-        glBufferData(GL_SHADER_STORAGE_BUFFER, sizeof(board), board, GL_DYNAMIC_COPY);
+        glBufferData(GL_SHADER_STORAGE_BUFFER, boardSize * sizeof(float), board, GL_DYNAMIC_COPY);
         glBindBuffer(GL_SHADER_STORAGE_BUFFER, board2_ssbo);
-        glBufferData(GL_SHADER_STORAGE_BUFFER, sizeof(board), nullptr,
+        glBufferData(GL_SHADER_STORAGE_BUFFER, boardSize * sizeof(float), nullptr,
                      GL_DYNAMIC_COPY);  // set size for the second buffer??
+        free(board);
 
         unsigned int tex;
         glGenTextures(1, &tex);
