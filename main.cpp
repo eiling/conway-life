@@ -180,7 +180,6 @@ int main() {
 
         const int boardSize = (BOARD_WIDTH + 2) * (BOARD_HEIGHT + 2);
         auto *board = (float *) (calloc(boardSize, sizeof(float)));
-        bool boardFlag = true;
         for (int i = 0; i < BOARD_WIDTH; ++i) {
             for (int j = 0; j < BOARD_HEIGHT; ++j) {
                 board[i + 1 + (j + 1) * (BOARD_WIDTH + 2)] = getRandom();
@@ -189,8 +188,7 @@ int main() {
         glBindBuffer(GL_SHADER_STORAGE_BUFFER, board1_ssbo);
         glBufferData(GL_SHADER_STORAGE_BUFFER, boardSize * sizeof(float), board, GL_DYNAMIC_COPY);
         glBindBuffer(GL_SHADER_STORAGE_BUFFER, board2_ssbo);
-        glBufferData(GL_SHADER_STORAGE_BUFFER, boardSize * sizeof(float), nullptr,
-                     GL_DYNAMIC_COPY);  // set size for the second buffer??
+        glBufferData(GL_SHADER_STORAGE_BUFFER, boardSize * sizeof(float), nullptr, GL_DYNAMIC_COPY);
         free(board);
 
         unsigned int tex;
@@ -218,14 +216,11 @@ int main() {
                 referenceTime += PERIOD;
                 std::cout << "Generation: " << ++gen << std::endl;
 
-                boardFlag = !boardFlag;
-                if (boardFlag) {
-                    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, board1_ssbo);
-                    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, board2_ssbo);
-                } else {
-                    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, board2_ssbo);
-                    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, board1_ssbo);
-                }
+                unsigned int temp = board1_ssbo;
+                board1_ssbo = board2_ssbo;
+                board2_ssbo = temp;
+                glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, board1_ssbo);
+                glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, board2_ssbo);
 
                 glUseProgram(lifeComputeProgram);
                 glDispatchCompute(BOARD_WIDTH, BOARD_HEIGHT, 1);
