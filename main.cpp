@@ -185,17 +185,19 @@ int main() {
                 board[i + 1 + (j + 1) * (BOARD_WIDTH + 2)] = getRandom();
             }
         }
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, board1_ssbo);
         glBindBuffer(GL_SHADER_STORAGE_BUFFER, board1_ssbo);
-        glBufferData(GL_SHADER_STORAGE_BUFFER, boardSize * sizeof(float), board, GL_DYNAMIC_COPY);
+        glBufferData(GL_SHADER_STORAGE_BUFFER, boardSize * sizeof(float), board, GL_STATIC_COPY);
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, board2_ssbo);
         glBindBuffer(GL_SHADER_STORAGE_BUFFER, board2_ssbo);
-        glBufferData(GL_SHADER_STORAGE_BUFFER, boardSize * sizeof(float), nullptr, GL_DYNAMIC_COPY);
+        glBufferData(GL_SHADER_STORAGE_BUFFER, boardSize * sizeof(float), nullptr, GL_STATIC_COPY);
         free(board);
 
         unsigned int tex;
         glGenTextures(1, &tex);
         glBindTexture(GL_TEXTURE_2D, tex);
 
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
 
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
@@ -224,16 +226,14 @@ int main() {
 
                 glUseProgram(lifeComputeProgram);
                 glDispatchCompute(BOARD_WIDTH, BOARD_HEIGHT, 1);
-
                 glMemoryBarrier(GL_ALL_BARRIER_BITS);
-
-                glUseProgram(textureComputeProgram);
-                glDispatchCompute(BOARD_WIDTH, BOARD_HEIGHT, 1);
-
-                glMemoryBarrier(GL_ALL_BARRIER_BITS);
-
-                glGenerateMipmap(GL_TEXTURE_2D);
             }
+
+            glUseProgram(textureComputeProgram);
+            glDispatchCompute(BOARD_WIDTH, BOARD_HEIGHT, 1);
+            glMemoryBarrier(GL_ALL_BARRIER_BITS);
+
+            glGenerateMipmap(GL_TEXTURE_2D);
 
             glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
